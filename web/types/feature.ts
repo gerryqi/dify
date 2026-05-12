@@ -4,6 +4,7 @@ export enum SSOProtocol {
   SAML = 'saml',
   OIDC = 'oidc',
   OAuth2 = 'oauth2',
+  Feishu = 'feishu',
 }
 
 export enum LicenseStatus {
@@ -65,6 +66,7 @@ export type SystemFeatures = {
     allow_email_password_login: boolean
   }
   enable_creators_platform: boolean
+  enable_feishu_sso: boolean
   enable_trial_app: boolean
   enable_explore_banner: boolean
 }
@@ -110,6 +112,7 @@ export const defaultSystemFeatures: SystemFeatures = {
     allow_email_password_login: false,
   },
   enable_creators_platform: false,
+  enable_feishu_sso: false,
   enable_trial_app: false,
   enable_explore_banner: false,
 }

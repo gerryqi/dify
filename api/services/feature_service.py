@@ -179,6 +179,7 @@ class SystemFeatureModel(BaseModel):
     trial_models: list[str] = []
     enable_creators_platform: bool = False
     enable_trial_app: bool = False
+    enable_feishu_sso: bool = Field(default=False)
     enable_explore_banner: bool = False
 
 
@@ -258,6 +259,7 @@ class FeatureService:
         system_features.is_email_setup = dify_config.MAIL_TYPE is not None and dify_config.MAIL_TYPE != ""
         system_features.trial_models = cls._fulfill_trial_models_from_env()
         system_features.enable_trial_app = dify_config.ENABLE_TRIAL_APP
+        system_features.enable_feishu_sso = dify_config.FEISHU_SSO_ENABLED
         system_features.enable_explore_banner = dify_config.ENABLE_EXPLORE_BANNER
 
     @classmethod
