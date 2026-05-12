@@ -5,8 +5,9 @@ This module provides OAuth2 SSO endpoints for Feishu (Lark) authentication.
 It is a community extension and does NOT depend on any enterprise features.
 
 Endpoints:
-  GET /web-api/sso/feishu/login    → Generate Feishu OAuth URL
-  GET /web-api/sso/feishu/callback → Handle Feishu OAuth callback
+  POST /web-api/sso/feishu/app-login → Exchange Feishu code for passport (no login page)
+  GET  /web-api/sso/feishu/login     → Generate Feishu OAuth URL
+  GET  /web-api/sso/feishu/callback  → Handle Feishu OAuth callback
 """
 
 import logging
@@ -23,9 +24,44 @@ from services.feishu_sso_service import FeishuSSOService
 logger = logging.getLogger(__name__)
 
 
+@web_ns.route("/sso/feishu/app-login")
+class FeishuAppLogin(Resource):
+    """Feishu workplace auto-login: code → passport, no login page needed."""
+
+    def post(self):
+        """Exchange Feishu auth code for passport token.
+
+        Request body (JSON):
+            code (str): Authorization code from Feishu workplace
+            app_code (str): The WebApp share code
+
+        Returns:
+            JSON with 'passport' and 'end_user_id'
+        """
+        if not FeishuSSOService.is_enabled():
+            raise BadRequest("Feishu SSO is not enabled.")
+
+        body = request.get_json(silent=True) or {}
+        code = body.get("code")
+        app_code = body.get("app_code")
+        if not code or not app_code:
+            raise BadRequest("Both 'code' and 'app_code' are required.")
+
+        try:
+            # Exchange code for access token → user info → EndUser → passport
+            token_data = FeishuSSOService.get_access_token(code)
+            user_info = FeishuSSOService.get_user_info(token_data["access_token"])
+            end_user = FeishuSSOService.create_or_get_end_user(app_code, user_info)
+            passport = FeishuSSOService.issue_passport_token(end_user, user_info["union_id"])
+            return {"passport": passport, "end_user_id": end_user.id}
+        except Exception as e:
+            logger.exception("Feishu app login failed")
+            return {"error": str(e)}, 400
+
+
 @web_ns.route("/sso/feishu/login")
 class FeishuSSOLogin(Resource):
-    """Generate Feishu OAuth2 authorization URL and return it to the frontend."""
+    """Generate Feishu OAuth2 authorization URL (for browser login page button)."""
 
     def get(self):
         """Generate Feishu authorization URL.
@@ -51,7 +87,7 @@ class FeishuSSOLogin(Resource):
 
 @web_ns.route("/sso/feishu/callback")
 class FeishuSSOCallback(Resource):
-    """Handle Feishu OAuth callback, create/get EndUser, and issue passport."""
+    """Handle Feishu OAuth callback (for browser login flow)."""
 
     def get(self):
         """Handle Feishu OAuth2 callback.
@@ -59,24 +95,12 @@ class FeishuSSOCallback(Resource):
         Query parameters (from Feishu):
             code (str): Authorization code from Feishu
             state (str): CSRF state parameter
-
-        Process:
-            1. Verify state (CSRF protection)
-            2. Exchange code for access token
-            3. Fetch user info from Feishu
-            4. Create or get EndUser
-            5. Issue passport token
-            6. Redirect frontend with passport
-
-        Returns:
-            302 redirect to frontend callback page with passport token
         """
         code = request.args.get("code")
         state = request.args.get("state")
         if not code or not state:
             raise BadRequest("Both 'code' and 'state' query parameters are required.")
 
-        # Verify state (CSRF protection)
         state_data = FeishuSSOService.verify_and_consume_state(state)
         if not state_data:
             raise BadRequest("Invalid or expired state parameter. Please try logging in again.")
@@ -85,20 +109,11 @@ class FeishuSSOCallback(Resource):
         redirect_url = state_data["redirect_url"]
 
         try:
-            # Exchange authorization code for access token
             token_data = FeishuSSOService.get_access_token(code)
-            access_token = token_data["access_token"]
-
-            # Fetch user info from Feishu
-            user_info = FeishuSSOService.get_user_info(access_token)
-
-            # Create or get EndUser
+            user_info = FeishuSSOService.get_user_info(token_data["access_token"])
             end_user = FeishuSSOService.create_or_get_end_user(app_code, user_info)
-
-            # Issue passport token
             passport = FeishuSSOService.issue_passport_token(end_user, user_info["union_id"])
 
-            # Redirect to frontend callback page with passport token
             params = urlencode({
                 "passport": passport,
                 "app_code": app_code,
