@@ -1341,6 +1341,33 @@ class LoginConfig(BaseSettings):
     )
 
 
+class FeishuSSOConfig(BaseSettings):
+    """
+    Feishu (Lark) SSO configuration for WebApp share application login.
+    This is a community extension and does NOT depend on any enterprise features.
+    """
+
+    FEISHU_SSO_ENABLED: bool = Field(
+        description="Enable Feishu SSO login for WebApp share applications",
+        default=False,
+    )
+
+    FEISHU_APP_ID: str = Field(
+        description="Feishu App ID (from Feishu Developer Console)",
+        default="",
+    )
+
+    FEISHU_APP_SECRET: str = Field(
+        description="Feishu App Secret",
+        default="",
+    )
+
+    FEISHU_REDIRECT_URI: str = Field(
+        description="OAuth redirect URI, must match Feishu developer config",
+        default="",
+    )
+
+
 class AccountConfig(BaseSettings):
     ACCOUNT_DELETION_TOKEN_EXPIRY_MINUTES: PositiveInt = Field(
         description="Duration in minutes for which a account deletion token remains valid",
@@ -1413,6 +1440,7 @@ class FeatureConfig(
     BillingConfig,
     CodeExecutionSandboxConfig,
     CreatorsPlatformConfig,
+    FeishuSSOConfig,
     TriggerConfig,
     AsyncWorkflowConfig,
     PluginConfig,
