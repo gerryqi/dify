@@ -130,6 +130,8 @@ class TestFeishuSSOService:
     def test_tenant_token_ok(self, mp):
         mp.return_value.json.return_value = {"code": 0, "tenant_access_token": "tt1"}
         with (
+            # Make Redis cache miss so we test the actual API call
+            patch("extensions.ext_redis.redis_client.get", return_value=None),
             patch("configs.dify_config.FEISHU_APP_ID", "id"),
             patch("configs.dify_config.FEISHU_APP_SECRET", "sec"),
         ):
@@ -139,6 +141,7 @@ class TestFeishuSSOService:
     def test_tenant_token_fail(self, mp):
         mp.return_value.json.return_value = {"code": 1}
         with (
+            patch("extensions.ext_redis.redis_client.get", return_value=None),
             patch("configs.dify_config.FEISHU_APP_ID", "id"),
             patch("configs.dify_config.FEISHU_APP_SECRET", "sec"),
             pytest.raises(ValueError, match="Failed to get Feishu tenant access token"),

@@ -43,8 +43,11 @@ class FeishuSSOService:
 
     # Redis key prefixes
     STATE_CACHE_PREFIX = "feishu_sso_state:"
-    # 5 minutes TTL for OAuth state
-    STATE_CACHE_TTL = 300
+    STATE_CACHE_TTL = 300  # 5 minutes TTL for OAuth state
+
+    # Tenant access token cache (valid 2 hours per Feishu docs, cache 7000s)
+    TENANT_TOKEN_CACHE_KEY = "feishu_tenant_access_token"
+    TENANT_TOKEN_CACHE_TTL = 7000
 
     @classmethod
     def is_enabled(cls) -> bool:
@@ -102,7 +105,10 @@ class FeishuSSOService:
 
     @classmethod
     def _get_tenant_access_token(cls) -> str:
-        """Get tenant access token for server-to-server API calls with Feishu.
+        """Get tenant access token, with Redis caching.
+
+        Feishu tenant tokens are valid for ~2 hours. Caching avoids unnecessary
+        API calls on every user login.
 
         Returns:
             tenant_access_token string
@@ -110,6 +116,11 @@ class FeishuSSOService:
         Raises:
             ValueError: If Feishu API returns an error
         """
+        # Try Redis cache first
+        cached = redis_client.get(cls.TENANT_TOKEN_CACHE_KEY)
+        if cached:
+            return cached.decode("utf-8") if isinstance(cached, bytes) else cached
+
         resp = httpx.post(
             cls.TENANT_TOKEN_URL,
             json={
@@ -122,7 +133,10 @@ class FeishuSSOService:
         data = resp.json()
         if data.get("code") != 0:
             raise ValueError(f"Failed to get Feishu tenant access token: code={data.get('code')}")
-        return data["tenant_access_token"]
+
+        token = data["tenant_access_token"]
+        redis_client.setex(cls.TENANT_TOKEN_CACHE_KEY, cls.TENANT_TOKEN_CACHE_TTL, token)
+        return token
 
     @classmethod
     def get_access_token(cls, code: str) -> dict[str, Any]:
@@ -224,6 +238,22 @@ class FeishuSSOService:
 
         logger.info("Created new EndUser for Feishu user %s (app=%s)", union_id, app_code)
         return end_user
+
+    @classmethod
+    def exchange_code_for_passport(cls, code: str, app_code: str) -> dict[str, Any]:
+        """Complete OAuth2 code-to-passport flow.
+
+        Encapsulates the full chain: code → access_token → user_info → EndUser → passport.
+        Used by both app-login (POST) and callback (GET) endpoints.
+
+        Returns:
+            dict with 'passport' (JWT string) and 'end_user_id'
+        """
+        token_data = cls.get_access_token(code)
+        user_info = cls.get_user_info(token_data["access_token"])
+        end_user = cls.create_or_get_end_user(app_code, user_info)
+        passport = cls.issue_passport_token(end_user, user_info["union_id"])
+        return {"passport": passport, "end_user_id": end_user.id}
 
     @classmethod
     def issue_passport_token(cls, end_user: EndUser, feishu_union_id: str) -> str:

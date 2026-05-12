@@ -19,9 +19,19 @@ from werkzeug.exceptions import BadRequest
 
 from configs import dify_config
 from controllers.web import web_ns
+from libs.helper import RateLimiter
 from services.feishu_sso_service import FeishuSSOService
 
 logger = logging.getLogger(__name__)
+
+# Rate limiter: max 5 app-login attempts per IP per minute
+_app_login_rate_limiter = RateLimiter(prefix="feishu_app_login", max_attempts=5, time_window=60)
+
+
+def _require_feishu_sso_enabled():
+    """Guard: raise BadRequest if Feishu SSO is not enabled."""
+    if not FeishuSSOService.is_enabled():
+        raise BadRequest("Feishu SSO is not enabled. Set FEISHU_SSO_ENABLED=true in your .env file.")
 
 
 @web_ns.route("/sso/feishu/app-login")
@@ -38,8 +48,7 @@ class FeishuAppLogin(Resource):
         Returns:
             JSON with 'passport' and 'end_user_id'
         """
-        if not FeishuSSOService.is_enabled():
-            raise BadRequest("Feishu SSO is not enabled.")
+        _require_feishu_sso_enabled()
 
         body = request.get_json(silent=True) or {}
         code = body.get("code")
@@ -48,15 +57,11 @@ class FeishuAppLogin(Resource):
             raise BadRequest("Both 'code' and 'app_code' are required.")
 
         try:
-            # Exchange code for access token → user info → EndUser → passport
-            token_data = FeishuSSOService.get_access_token(code)
-            user_info = FeishuSSOService.get_user_info(token_data["access_token"])
-            end_user = FeishuSSOService.create_or_get_end_user(app_code, user_info)
-            passport = FeishuSSOService.issue_passport_token(end_user, user_info["union_id"])
-            return {"passport": passport, "end_user_id": end_user.id}
-        except Exception as e:
+            result = FeishuSSOService.exchange_code_for_passport(code, app_code)
+            return result
+        except Exception:
             logger.exception("Feishu app login failed")
-            return {"error": str(e)}, 400
+            return {"error": "Authentication failed. Please try again."}, 400
 
 
 @web_ns.route("/sso/feishu/login")
@@ -73,8 +78,7 @@ class FeishuSSOLogin(Resource):
         Returns:
             JSON with 'url' containing the Feishu authorization URL
         """
-        if not FeishuSSOService.is_enabled():
-            raise BadRequest("Feishu SSO is not enabled. Set FEISHU_SSO_ENABLED=true in your .env file.")
+        _require_feishu_sso_enabled()
 
         app_code = request.args.get("app_code")
         redirect_url = request.args.get("redirect_url")
@@ -109,10 +113,8 @@ class FeishuSSOCallback(Resource):
         redirect_url = state_data["redirect_url"]
 
         try:
-            token_data = FeishuSSOService.get_access_token(code)
-            user_info = FeishuSSOService.get_user_info(token_data["access_token"])
-            end_user = FeishuSSOService.create_or_get_end_user(app_code, user_info)
-            passport = FeishuSSOService.issue_passport_token(end_user, user_info["union_id"])
+            result = FeishuSSOService.exchange_code_for_passport(code, app_code)
+            passport = result["passport"]
 
             params = urlencode({
                 "passport": passport,
@@ -121,9 +123,6 @@ class FeishuSSOCallback(Resource):
             })
             return redirect(f"{dify_config.CONSOLE_WEB_URL}/webapp-signin/feishu-callback?{params}")
 
-        except Exception as e:
+        except Exception:
             logger.exception("Feishu SSO callback failed")
-            return redirect(
-                f"{dify_config.CONSOLE_WEB_URL}/webapp-signin"
-                f"?error=sso_failed&message={str(e)}"
-            )
+            return redirect(f"{dify_config.CONSOLE_WEB_URL}/webapp-signin?error=sso_failed")
