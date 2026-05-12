@@ -1367,6 +1367,11 @@ class FeishuSSOConfig(BaseSettings):
         default="",
     )
 
+    FEISHU_LARK_ENDPOINT: bool = Field(
+        description="Set to true for Lark (International) instead of Feishu (China)",
+        default=False,
+    )
+
 
 class AccountConfig(BaseSettings):
     ACCOUNT_DELETION_TOKEN_EXPIRY_MINUTES: PositiveInt = Field(
