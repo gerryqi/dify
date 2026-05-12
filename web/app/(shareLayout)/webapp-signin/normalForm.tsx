@@ -7,9 +7,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import Loading from '@/app/components/base/loading'
 import { IS_CE_EDITION } from '@/config'
+import { useWebAppStore } from '@/context/web-app-context'
 import Link from '@/next/link'
 import { systemFeaturesQueryOptions } from '@/service/system-features'
 import { LicenseStatus } from '@/types/feature'
+import FeishuSSOAuth from './components/feishu-sso-auth'
 import MailAndCodeAuth from './components/mail-and-code-auth'
 import MailAndPasswordAuth from './components/mail-and-password-auth'
 import SSOAuth from './components/sso-auth'
@@ -19,6 +21,7 @@ const NormalForm = () => {
 
   const [isLoading, setIsLoading] = useState(true)
   const { data: systemFeatures } = useSuspenseQuery(systemFeaturesQueryOptions())
+  const shareCode = useWebAppStore(s => s.shareCode)
   const [authType, updateAuthType] = useState<'code' | 'password'>('password')
   const [showORLine, setShowORLine] = useState(false)
   const [allMethodsAreDisabled, setAllMethodsAreDisabled] = useState(false)
@@ -125,6 +128,11 @@ const NormalForm = () => {
               <div className="relative flex justify-center">
                 <span className="px-2 system-xs-medium-uppercase text-text-tertiary">{t('or', { ns: 'login' })}</span>
               </div>
+            </div>
+          )}
+          {systemFeatures.enable_feishu_sso && (
+            <div className="w-full">
+              <FeishuSSOAuth appCode={shareCode} />
             </div>
           )}
           {
